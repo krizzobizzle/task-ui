@@ -115,18 +115,15 @@
       display: block;
     }
 
-    /* Empty state — dim outline strand */
+    /* Empty state — dim filled strand */
     .segment.empty svg path {
-      fill: none;
-      stroke: #3A454D;
-      stroke-width: 0.8;
-      transition: fill 0.2s ease, stroke 0.2s ease;
+      fill: #293136;
+      stroke: none;
+      transition: fill 0.2s ease;
     }
 
     .segment.empty:hover svg path {
-      stroke: var(--area-primary);
-      stroke-width: 1;
-      fill: rgba(68, 255, 162, 0.06);
+      fill: #354048;
     }
 
     /* Selected state */
@@ -136,9 +133,7 @@
     }
 
     .segment.selected svg path {
-      stroke: var(--area-primary);
-      stroke-width: 1.2;
-      fill: rgba(68, 255, 162, 0.1);
+      fill: rgba(68, 255, 162, 0.2);
     }
 
     /* --- Gene Colour Fills (applied to SVG path) --- */

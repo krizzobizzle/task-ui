@@ -93,10 +93,9 @@ const GeneSpliceTask = {
     this.isRevealing = true;
     this.selectedSlot = null;
 
-    // Reset player input for all strands visible in this phase
-    for (let i = 0; i <= phaseIdx; i++) {
-      this.playerInput[i] = new Array(this.SEGMENT_COUNT).fill(null);
-    }
+    // Only reset player input for the NEW strand in this phase
+    // Previous strands keep their correct answers (locked)
+    this.playerInput[phaseIdx] = new Array(this.SEGMENT_COUNT).fill(null);
 
     // Build strand rows
     this._buildStrandRows(phaseIdx);
@@ -124,6 +123,7 @@ const GeneSpliceTask = {
       const row = document.createElement('div');
       row.className = 'strand-row';
       row.dataset.strand = strandIdx;
+      const isPreviousStrand = strandIdx < phaseIdx;
 
       // Label
       const label = document.createElement('span');
@@ -137,16 +137,24 @@ const GeneSpliceTask = {
 
       for (let segIdx = 0; segIdx < this.SEGMENT_COUNT; segIdx++) {
         const seg = document.createElement('div');
-        seg.className = 'segment empty';
         seg.dataset.strand = strandIdx;
         seg.dataset.segment = segIdx;
 
         // Inline strand SVG
         seg.innerHTML = `<svg viewBox="0 0 94 38" fill="none" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" clip-rule="evenodd" d="${this.STRAND_SVG_PATH}"/></svg>`;
 
-        seg.addEventListener('click', () => {
-          this._onSegmentClick(strandIdx, segIdx);
-        });
+        if (isPreviousStrand) {
+          // Pre-fill with correct colour and lock
+          const colour = this.patterns[strandIdx][segIdx];
+          seg.className = `segment colour-${colour} locked`;
+          this.playerInput[strandIdx][segIdx] = colour;
+        } else {
+          // New strand — empty and clickable
+          seg.className = 'segment empty';
+          seg.addEventListener('click', () => {
+            this._onSegmentClick(strandIdx, segIdx);
+          });
+        }
 
         segContainer.appendChild(seg);
       }
@@ -162,21 +170,15 @@ const GeneSpliceTask = {
   _revealPattern(phaseIdx) {
     const duration = this.REVEAL_DURATIONS[phaseIdx];
     const strandArea = document.getElementById(`strand-area-${phaseIdx + 1}`);
-    const segments = strandArea.querySelectorAll('.segment');
 
-    // Show all patterns with colours
-    segments.forEach(seg => {
-      const sIdx = parseInt(seg.dataset.strand);
+    // Only reveal the NEW strand for this phase (previous strands are already locked/visible)
+    const newSegments = strandArea.querySelectorAll(`.segment[data-strand="${phaseIdx}"]`);
+    newSegments.forEach(seg => {
       const gIdx = parseInt(seg.dataset.segment);
-      const colour = this.patterns[sIdx][gIdx];
+      const colour = this.patterns[phaseIdx][gIdx];
 
       seg.classList.remove('empty');
       seg.classList.add(`colour-${colour}`, 'revealing');
-
-      // Previous strands show as locked/dimmed
-      if (sIdx < phaseIdx) {
-        seg.classList.add('locked');
-      }
     });
 
     // After reveal duration, hide and enable input
@@ -185,12 +187,12 @@ const GeneSpliceTask = {
 
   _hidePattern(phaseIdx) {
     const strandArea = document.getElementById(`strand-area-${phaseIdx + 1}`);
-    const segments = strandArea.querySelectorAll('.segment');
 
-    segments.forEach(seg => {
-      // Remove all colour classes
+    // Only hide the NEW strand segments (previous strands stay locked/coloured)
+    const newSegments = strandArea.querySelectorAll(`.segment[data-strand="${phaseIdx}"]`);
+    newSegments.forEach(seg => {
       this.GENE_NAMES.forEach(name => seg.classList.remove(`colour-${name}`));
-      seg.classList.remove('revealing', 'locked');
+      seg.classList.remove('revealing');
       seg.classList.add('empty');
     });
 
@@ -204,7 +206,7 @@ const GeneSpliceTask = {
 
     // Update instruction
     const instrEl = document.getElementById(`instruction-${phaseIdx + 1}`);
-    if (instrEl) instrEl.textContent = 'Reconstruct the sequence from memory.';
+    if (instrEl) instrEl.textContent = 'Reconstruct the new strand from memory.';
 
     // Auto-select first empty slot
     this._autoSelectNextEmpty(phaseIdx);
@@ -279,15 +281,13 @@ const GeneSpliceTask = {
   _autoSelectNextEmpty(phaseIdx) {
     this._clearSelection();
 
-    // Scan all strands top-to-bottom, left-to-right
-    for (let sIdx = 0; sIdx <= phaseIdx; sIdx++) {
-      for (let gIdx = 0; gIdx < this.SEGMENT_COUNT; gIdx++) {
-        if (this.playerInput[sIdx][gIdx] === null) {
-          this.selectedSlot = { strandIdx: sIdx, segIdx: gIdx };
-          const seg = this._getSegmentEl(phaseIdx, sIdx, gIdx);
-          if (seg) seg.classList.add('selected');
-          return;
-        }
+    // Only scan the current phase's strand (previous strands are locked)
+    for (let gIdx = 0; gIdx < this.SEGMENT_COUNT; gIdx++) {
+      if (this.playerInput[phaseIdx][gIdx] === null) {
+        this.selectedSlot = { strandIdx: phaseIdx, segIdx: gIdx };
+        const seg = this._getSegmentEl(phaseIdx, phaseIdx, gIdx);
+        if (seg) seg.classList.add('selected');
+        return;
       }
     }
     // All filled — no selection
@@ -295,10 +295,9 @@ const GeneSpliceTask = {
   },
 
   _allSlotsFilled(phaseIdx) {
-    for (let sIdx = 0; sIdx <= phaseIdx; sIdx++) {
-      for (let gIdx = 0; gIdx < this.SEGMENT_COUNT; gIdx++) {
-        if (this.playerInput[sIdx][gIdx] === null) return false;
-      }
+    // Only check the current phase's strand
+    for (let gIdx = 0; gIdx < this.SEGMENT_COUNT; gIdx++) {
+      if (this.playerInput[phaseIdx][gIdx] === null) return false;
     }
     return true;
   },
@@ -318,12 +317,11 @@ const GeneSpliceTask = {
     let allCorrect = true;
     const wrongSegments = [];
 
-    for (let sIdx = 0; sIdx <= phaseIdx; sIdx++) {
-      for (let gIdx = 0; gIdx < this.SEGMENT_COUNT; gIdx++) {
-        if (this.playerInput[sIdx][gIdx] !== this.patterns[sIdx][gIdx]) {
-          allCorrect = false;
-          wrongSegments.push({ strandIdx: sIdx, segmentIdx: gIdx });
-        }
+    // Only check the current phase's strand (previous strands are already correct)
+    for (let gIdx = 0; gIdx < this.SEGMENT_COUNT; gIdx++) {
+      if (this.playerInput[phaseIdx][gIdx] !== this.patterns[phaseIdx][gIdx]) {
+        allCorrect = false;
+        wrongSegments.push({ strandIdx: phaseIdx, segmentIdx: gIdx });
       }
     }
 
@@ -335,9 +333,9 @@ const GeneSpliceTask = {
   },
 
   _onStrandCorrect(phaseIdx) {
-    // Green glow on all segments
+    // Green glow on current strand's segments only
     const strandArea = document.getElementById(`strand-area-${phaseIdx + 1}`);
-    strandArea.querySelectorAll('.segment').forEach(seg => {
+    strandArea.querySelectorAll(`.segment[data-strand="${phaseIdx}"]`).forEach(seg => {
       seg.classList.add('correct');
     });
 
@@ -394,11 +392,12 @@ const GeneSpliceTask = {
   _clearAllInputs(phaseIdx) {
     const strandArea = document.getElementById(`strand-area-${phaseIdx + 1}`);
 
-    for (let sIdx = 0; sIdx <= phaseIdx; sIdx++) {
-      this.playerInput[sIdx] = new Array(this.SEGMENT_COUNT).fill(null);
-    }
+    // Only reset the current phase's strand (previous strands stay locked)
+    this.playerInput[phaseIdx] = new Array(this.SEGMENT_COUNT).fill(null);
 
-    strandArea.querySelectorAll('.segment').forEach(seg => {
+    // Only clear segments for the current strand
+    const currentSegments = strandArea.querySelectorAll(`.segment[data-strand="${phaseIdx}"]`);
+    currentSegments.forEach(seg => {
       this.GENE_NAMES.forEach(name => seg.classList.remove(`colour-${name}`));
       seg.classList.remove('correct', 'error', 'selected', 'pop');
       seg.classList.add('empty');
