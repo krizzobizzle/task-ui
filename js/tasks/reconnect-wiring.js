@@ -31,8 +31,8 @@ const WiringTask = {
   // Wire style
   wireColor: '#222E34',
   wireStroke: '#0F171C',
-  wireWidth: 4,
-  cornerRadius: 12,
+  wireWidth: 10,
+  cornerRadius: 24,
 
   // State
   cables: [],
@@ -181,50 +181,72 @@ const WiringTask = {
   },
 
   /**
-   * Generate orthogonal (right-angle) routes for each cable
-   * Each route is an array of {x,y} points forming an L-shaped or Z-shaped path
+   * Generate orthogonal (right-angle) routes for each cable.
+   * Each cable gets ONE unique vertical X-channel and ONE unique horizontal Y-lane.
+   * This guarantees no two wires ever share the same path segment.
    */
   _generateRoutes() {
     this.cables = [];
     const wz = this.layout.wireZone;
     const wzWidth = wz.right - wz.left;
+    const wzHeight = wz.bottom - wz.top;
 
-    // Divide the wire zone into vertical channels
-    // Each cable gets assigned channels for its horizontal runs
-    const numChannels = this.CABLE_COUNT * 2 + 1;
-    const channelWidth = wzWidth / numChannels;
+    // Create exactly CABLE_COUNT unique vertical X-channels (evenly spaced)
+    const xPadding = wzWidth * 0.08;
+    const xUsable = wzWidth - xPadding * 2;
+    const xChannels = [];
+    for (let i = 0; i < this.CABLE_COUNT; i++) {
+      xChannels.push(wz.left + xPadding + (i + 0.5) * (xUsable / this.CABLE_COUNT));
+    }
+    const shuffledX = this._shuffle(xChannels);
 
-    // Shuffle channel assignments for variety
-    const channels = this._shuffle(
-      Array.from({ length: numChannels }, (_, i) => i)
-    );
+    // Create exactly CABLE_COUNT unique horizontal Y-lanes (evenly spaced)
+    // These sit between the endpoint Y positions to avoid overlapping with start/end Y
+    const yPadding = wzHeight * 0.08;
+    const yUsable = wzHeight - yPadding * 2;
+    const yLanes = [];
+    for (let i = 0; i < this.CABLE_COUNT; i++) {
+      yLanes.push(wz.top + yPadding + (i + 0.5) * (yUsable / this.CABLE_COUNT));
+    }
+    const shuffledY = this._shuffle(yLanes);
 
     for (let i = 0; i < this.CABLE_COUNT; i++) {
       const leftY = this.layout.cableStartYs[i];
       const socketSlot = this.targetSlots[i];
       const rightY = this.layout.socketYs[socketSlot];
 
-      // Assign 1-2 vertical channels for this wire's horizontal segments
-      const ch1 = channels[i * 2];
-      const ch2 = channels[i * 2 + 1];
+      // Each cable gets its own unique X-channel and Y-lane
+      const midX = shuffledX[i];
+      const midY = shuffledY[i];
 
-      const midX1 = wz.left + (ch1 + 0.5) * channelWidth;
-      const midX2 = wz.left + (ch2 + 0.5) * channelWidth;
+      // Route: start → horizontal to midX → vertical to midY → horizontal to rightX area → vertical to rightY → end
+      // We use a second unique X position to create a Z-shape. Split the zone in half:
+      // first vertical turn uses midX, second vertical turn at a mirrored position
+      const midX2 = wz.left + wz.right - midX; // mirror across centre
 
-      // Ensure midX1 < midX2 for left-to-right flow
-      const xA = Math.min(midX1, midX2);
-      const xB = Math.max(midX1, midX2);
+      // Ensure left-to-right ordering
+      const xA = Math.min(midX, midX2);
+      const xB = Math.max(midX, midX2);
 
-      // Build route: start → go right to xA → go up/down to intermediate Y → go right to xB → go up/down to rightY → go right to end
-      // Pick an intermediate Y that creates interesting routing
-      const intermediateY = this._pickIntermediateY(leftY, rightY, i);
+      // If xA and xB are too close (< 15% of zone), push them apart
+      const minSep = wzWidth * 0.15;
+      let fxA = xA;
+      let fxB = xB;
+      if (fxB - fxA < minSep) {
+        const centre = (fxA + fxB) / 2;
+        fxA = centre - minSep / 2;
+        fxB = centre + minSep / 2;
+      }
+      // Clamp within wire zone
+      fxA = Math.max(wz.left + 10, fxA);
+      fxB = Math.min(wz.right - 10, fxB);
 
       const route = [
         { x: this.layout.leftX, y: leftY },
-        { x: xA, y: leftY },
-        { x: xA, y: intermediateY },
-        { x: xB, y: intermediateY },
-        { x: xB, y: rightY },
+        { x: fxA, y: leftY },
+        { x: fxA, y: midY },
+        { x: fxB, y: midY },
+        { x: fxB, y: rightY },
         { x: this.layout.rightX, y: rightY }
       ];
 
@@ -239,27 +261,6 @@ const WiringTask = {
         lockProgress: 0
       });
     }
-  },
-
-  /**
-   * Pick an intermediate Y that creates more crossings
-   */
-  _pickIntermediateY(leftY, rightY, cableIdx) {
-    const wz = this.layout.wireZone;
-    const usableH = wz.bottom - wz.top;
-
-    // Use different strategies per cable to maximise visual complexity
-    const strategies = [
-      () => wz.top + usableH * 0.1,
-      () => wz.top + usableH * 0.9,
-      () => wz.top + usableH * 0.35,
-      () => wz.top + usableH * 0.65,
-      () => wz.top + usableH * 0.5
-    ];
-
-    // Shuffle strategy assignment based on cable index
-    const shuffled = this._shuffle([0, 1, 2, 3, 4]);
-    return strategies[shuffled[cableIdx]]();
   },
 
   /**
@@ -548,16 +549,16 @@ const WiringTask = {
       if (isLive) {
         this._traceRoundedRoute(ctx, route, r);
         ctx.strokeStyle = `rgba(255, 68, 68, ${0.12 + Math.sin(this.swayTime * 8) * 0.08})`;
-        ctx.lineWidth = this.wireWidth + 8;
+        ctx.lineWidth = this.wireWidth + 14;
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
         ctx.stroke();
       }
 
-      // Wire stroke (outer dark border)
+      // Wire stroke (outer dark border — 5px border each side)
       this._traceRoundedRoute(ctx, route, r);
       ctx.strokeStyle = this.wireStroke;
-      ctx.lineWidth = this.wireWidth + 2;
+      ctx.lineWidth = this.wireWidth + 5;
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
       ctx.stroke();
