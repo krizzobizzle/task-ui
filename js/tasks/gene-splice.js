@@ -194,7 +194,7 @@ const GeneSpliceTask = {
 
     // Update instruction
     const instrEl = document.getElementById(`instruction-${phaseIdx + 1}`);
-    if (instrEl) instrEl.textContent = 'Reconstruct the sequence from memory.';
+    if (instrEl) instrEl.textContent = 'Memorise and recreate the sequence.';
 
     // Auto-select first empty slot
     this._autoSelectNextEmpty(phaseIdx);
