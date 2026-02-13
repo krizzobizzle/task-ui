@@ -30,3 +30,10 @@
   --area-secondary1: #ADE7CA;
   --area-secondary2: #92AD3F;
 }
+
+/* --- Weapons (Neutral Steel-Blue) --- */
+.theme-weapons {
+  --area-primary: #94A8BC;
+  --area-secondary1: #54656F;
+  --area-secondary2: #28363B;
+}

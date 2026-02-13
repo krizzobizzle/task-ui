@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Weapons Lockbox — Digital Passcode</title>
+
+  <!-- Design System CSS -->
+  <link rel="stylesheet" href="../css/base.css">
+  <link rel="stylesheet" href="../css/typography.css">
+  <link rel="stylesheet" href="../css/components.css">
+  <link rel="stylesheet" href="../css/themes.css">
+
+  <!-- Task-specific styles -->
+  <style>
+    /* --- Lockbox Layout --- */
+    .lockbox-layout {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 24px;
+      width: 100%;
+      max-width: 420px;
+      padding: 8px 0;
+    }
+
+    /* --- Guess History --- */
+    .guess-history {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      width: 100%;
+      min-height: 48px;
+      align-items: center;
+    }
+
+    .guess-row {
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+      animation: guessSlideIn 0.3s ease;
+    }
+
+    @keyframes guessSlideIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .guess-row .lockbox-digit {
+      width: 60px;
+      height: 72px;
+      font-size: 42px;
+    }
+
+    /* --- Current Code Display --- */
+    .lockbox-code {
+      display: flex;
+      gap: 14px;
+      justify-content: center;
+      padding: 8px 0;
+    }
+
+    .lockbox-digit {
+      width: 75px;
+      height: 88px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: 'PP Supply Mono', sans-serif;
+      font-weight: 300;
+      font-size: 56px;
+      letter-spacing: 1px;
+      color: #94A8BC;
+      background: #1A2228;
+      border: 1px solid #293136;
+      border-radius: 12px;
+      position: relative;
+      transition: transform 0.15s ease, border-color 0.3s ease, background 0.3s ease, color 0.3s ease, box-shadow 0.3s ease;
+    }
+
+    .lockbox-digit.empty {
+      color: #293136;
+    }
+
+    .lockbox-digit.empty::after {
+      content: '_';
+      color: #3A454D;
+      font-size: 42px;
+      position: absolute;
+      bottom: 12px;
+    }
+
+    .lockbox-digit.pop {
+      animation: digitPop 0.15s ease;
+    }
+
+    @keyframes digitPop {
+      0% { transform: scale(0.8); opacity: 0.5; }
+      60% { transform: scale(1.05); }
+      100% { transform: scale(1); opacity: 1; }
+    }
+
+    /* --- Digit Reveal States --- */
+    .lockbox-digit.correct {
+      background: rgba(77, 223, 157, 0.15);
+      border-color: #4DDF9D;
+      color: #4DDF9D;
+      box-shadow: 0 0 20px rgba(94, 255, 188, 0.42);
+    }
+
+    .lockbox-digit.present {
+      background: rgba(221, 124, 39, 0.12);
+      border-color: #DD7C27;
+      color: #DD7C27;
+      box-shadow: 0 0 15px rgba(255, 164, 94, 0.18);
+    }
+
+    .lockbox-digit.absent {
+      background: #1A2026;
+      border-color: #2E383F;
+      color: #454F58;
+    }
+
+    .lockbox-digit.reveal {
+      animation: digitReveal 0.3s ease;
+    }
+
+    @keyframes digitReveal {
+      0% { transform: scale(1); }
+      40% { transform: scale(1.12); }
+      100% { transform: scale(1); }
+    }
+
+    /* --- Keypad Grid --- */
+    .keypad-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+      width: 100%;
+      max-width: 340px;
+    }
+
+    .keypad-btn {
+      width: 100%;
+      aspect-ratio: 75 / 68;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: 'Bungee', sans-serif;
+      font-size: 32px;
+      letter-spacing: 0.5px;
+      color: #54656F;
+      background: linear-gradient(180deg, #121A20 0%, #0F1519 100%);
+      border: 1px solid #28363B;
+      border-radius: 17px;
+      box-shadow: 0px 5px 0px #182025;
+      cursor: pointer;
+      user-select: none;
+      transition: transform 50ms ease, box-shadow 50ms ease, color 0.15s ease;
+      position: relative;
+      padding: 0;
+      outline: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .keypad-btn:hover {
+      color: #7C959F;
+    }
+
+    .keypad-btn:active,
+    .keypad-btn.pressed {
+      transform: translateY(3px);
+      box-shadow: 0px 2px 0px #182025;
+      background: rgba(255, 255, 255, 0.03);
+      border-color: #344048;
+    }
+
+    .keypad-btn.spacer {
+      visibility: hidden;
+      pointer-events: none;
+    }
+
+    .keypad-btn--del {
+      font-size: 16px;
+      letter-spacing: 1px;
+    }
+
+    .keypad-btn:disabled {
+      opacity: 0.3;
+      cursor: not-allowed;
+      pointer-events: none;
+    }
+
+    /* --- Guess Pips --- */
+    .guess-tracker {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .guess-pips {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .guess-pip {
+      width: 12px;
+      height: 28px;
+      border-radius: 4px;
+      background: #2A3337;
+      transition: background 0.3s ease, box-shadow 0.3s ease;
+    }
+
+    .guess-pip.used {
+      background: #FF590B;
+      box-shadow: 0 0 10px rgba(255, 64, 64, 0.62);
+    }
+
+    .guess-tracker__text {
+      font-family: 'PP Supply Mono', sans-serif;
+      font-weight: 400;
+      font-size: 14px;
+      letter-spacing: 0.5px;
+      color: #94A8BC;
+    }
+
+    /* --- Lockout Overlay --- */
+    .lockout-overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(14, 21, 25, 0.95);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.4s ease;
+      z-index: 6;
+      border-radius: var(--frame-radius);
+    }
+
+    .lockout-overlay.active {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .lockout-overlay__title {
+      font-family: 'Bungee', sans-serif;
+      font-size: 28px;
+      letter-spacing: 0.5px;
+      color: var(--error-red);
+      text-transform: uppercase;
+      text-shadow: 0 0 25px rgba(255, 68, 68, 0.5);
+    }
+
+    .lockout-overlay__timer {
+      font-family: 'Bungee', sans-serif;
+      font-size: 52px;
+      letter-spacing: 1px;
+      color: var(--error-red);
+      text-shadow: 0 0 30px rgba(255, 68, 68, 0.4);
+    }
+
+    .lockout-overlay__sub {
+      font-family: 'PP Supply Mono', sans-serif;
+      font-weight: 300;
+      font-size: 14px;
+      letter-spacing: 0.5px;
+      color: var(--text-muted);
+    }
+
+    /* --- Solved Celebration --- */
+    .lockbox-digit.solved {
+      animation: solvedPulse 0.6s ease infinite alternate;
+    }
+
+    @keyframes solvedPulse {
+      from { box-shadow: 0 0 20px rgba(94, 255, 188, 0.42); }
+      to { box-shadow: 0 0 35px rgba(94, 255, 188, 0.65); }
+    }
+
+    /* --- Responsive --- */
+    @media (max-width: 480px) {
+      .lockbox-digit {
+        width: 60px;
+        height: 72px;
+        font-size: 42px;
+      }
+      .keypad-btn {
+        font-size: 26px;
+        border-radius: 12px;
+      }
+      .lockbox-layout {
+        gap: 18px;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <!-- ===== TASK OVERLAY ===== -->
+  <div class="task-overlay theme-weapons">
+
+    <!-- Dark blur background -->
+    <div class="task-overlay__bg"></div>
+
+    <!-- Task Header -->
+    <div class="task-header">
+      <span class="task-header__area-label">Weapons</span>
+      <h1 class="task-header__title">ZR-770 Shotgun</h1>
+    </div>
+
+    <!-- Close Button -->
+    <button class="task-close" aria-label="Close task">
+      <svg viewBox="0 0 34 33" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <line x1="2" y1="2" x2="32" y2="31" />
+        <line x1="32" y1="2" x2="2" y2="31" />
+      </svg>
+    </button>
+
+    <!-- Task Frame -->
+    <div class="task-frame">
+
+      <!-- ===== LOCKBOX TASK ===== -->
+      <div id="phase-lockbox" class="phase-container active">
+        <div class="lockbox-layout">
+
+          <!-- Guess History -->
+          <div class="guess-history" id="guess-history"></div>
+
+          <!-- Current Code Input -->
+          <div class="lockbox-code" id="lockbox-code">
+            <div class="lockbox-digit empty" data-idx="0"></div>
+            <div class="lockbox-digit empty" data-idx="1"></div>
+            <div class="lockbox-digit empty" data-idx="2"></div>
+            <div class="lockbox-digit empty" data-idx="3"></div>
+          </div>
+
+          <!-- Keypad -->
+          <div class="keypad-grid" id="keypad">
+            <button class="keypad-btn spacer" data-key="spacer"></button>
+            <button class="keypad-btn" data-key="1">1</button>
+            <button class="keypad-btn" data-key="2">2</button>
+            <button class="keypad-btn" data-key="3">3</button>
+
+            <button class="keypad-btn keypad-btn--del" data-key="del">DEL</button>
+            <button class="keypad-btn" data-key="4">4</button>
+            <button class="keypad-btn" data-key="5">5</button>
+            <button class="keypad-btn" data-key="6">6</button>
+
+            <button class="keypad-btn" data-key="0">0</button>
+            <button class="keypad-btn" data-key="7">7</button>
+            <button class="keypad-btn" data-key="8">8</button>
+            <button class="keypad-btn" data-key="9">9</button>
+          </div>
+
+          <!-- Guess Tracker -->
+          <div class="guess-tracker">
+            <div class="guess-pips" id="guess-pips">
+              <div class="guess-pip"></div>
+              <div class="guess-pip"></div>
+              <div class="guess-pip"></div>
+              <div class="guess-pip"></div>
+              <div class="guess-pip"></div>
+              <div class="guess-pip"></div>
+              <div class="guess-pip"></div>
+              <div class="guess-pip"></div>
+            </div>
+            <span class="guess-tracker__text" id="guesses-remaining">8 guesses remaining</span>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- ===== LOCKOUT OVERLAY ===== -->
+      <div class="lockout-overlay" id="lockout-overlay">
+        <p class="lockout-overlay__title">Lockbox Disabled</p>
+        <p class="lockout-overlay__timer" id="lockout-timer">3:00</p>
+        <p class="lockout-overlay__sub">Security protocol engaged...</p>
+      </div>
+
+      <!-- ===== TASK COMPLETION OVERLAY ===== -->
+      <div class="task-completion">
+        <div class="task-completion__glow"></div>
+        <svg class="task-completion__checkmark" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="24" cy="24" r="22" stroke="#44FFA2" stroke-width="2" opacity="0.5"/>
+          <path d="M14 24L21 31L34 18" stroke="#44FFA2" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <p class="task-completion__text">Task Completed!</p>
+        <button class="btn btn--confirm task-completion__continue">Continue</button>
+      </div>
+
+    </div><!-- /task-frame -->
+
+  </div><!-- /task-overlay -->
+
+  <!-- Scripts -->
+  <script src="../js/audio.js"></script>
+  <script src="../js/task-shell.js"></script>
+  <script src="../js/tasks/weapons-lockbox.js"></script>
+
+</body>
+</html>
