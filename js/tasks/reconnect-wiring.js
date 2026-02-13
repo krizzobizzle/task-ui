@@ -60,6 +60,10 @@ const WiringTask = {
   // Animation
   swayTime: 0,
 
+  // Completion delay — lets final wire animate before showing overlay
+  completionPending: false,
+  completionDelay: 0,
+
   // Spark particles
   sparks: [],
 
@@ -131,6 +135,8 @@ const WiringTask = {
     this.stunTimer = 0;
     this.sparks = [];
     this.swayTime = 0;
+    this.completionPending = false;
+    this.completionDelay = 0;
 
     // Random target mapping: cable i connects to socket slot targetSlots[i]
     this.targetSlots = this._shuffle([0, 1, 2, 3, 4]);
@@ -182,9 +188,15 @@ const WiringTask = {
 
   /**
    * Generate orthogonal (right-angle) routes for each cable.
-   * Each cable gets TWO unique vertical X-channels and TWO unique horizontal Y-lanes,
-   * creating a double-Z path with 8 waypoints and more crossings.
-   * All channels/lanes are exclusive — no two wires share any path segment.
+   * Every horizontal and vertical segment uses a UNIQUE coordinate so
+   * no two wires ever share any part of a path — horizontally or vertically.
+   *
+   * Strategy: allocate a grid of exclusive X-columns and Y-rows.
+   * Each cable owns 3 exclusive X-columns (for its 3 vertical runs)
+   * and 2 exclusive Y-rows (for its 2 internal horizontal runs).
+   * The entry/exit horizontal segments use the cable's own leftY/rightY,
+   * but we route them through the first vertical column immediately,
+   * so shared-Y runs are kept as short as possible (just endpoint → first turn).
    */
   _generateRoutes() {
     this.cables = [];
@@ -192,62 +204,48 @@ const WiringTask = {
     const wzWidth = wz.right - wz.left;
     const wzHeight = wz.bottom - wz.top;
 
-    // We need 2 X-channels per cable (total 10) and 2 Y-lanes per cable (total 10)
-    const numX = this.CABLE_COUNT * 2;
+    // We need 3 X-columns per cable (15 total) and 2 Y-rows per cable (10 total)
+    const numX = this.CABLE_COUNT * 3;
     const numY = this.CABLE_COUNT * 2;
 
-    // Generate unique vertical X-channels
-    const xPadding = wzWidth * 0.05;
-    const xUsable = wzWidth - xPadding * 2;
-    const xChannels = [];
+    // Generate unique vertical X-columns (evenly spaced across wire zone)
+    const xPad = wzWidth * 0.03;
+    const xUsable = wzWidth - xPad * 2;
+    const allX = [];
     for (let i = 0; i < numX; i++) {
-      xChannels.push(wz.left + xPadding + (i + 0.5) * (xUsable / numX));
+      allX.push(wz.left + xPad + (i + 0.5) * (xUsable / numX));
     }
-    const shuffledX = this._shuffle(xChannels);
+    const shuffledX = this._shuffle(allX);
 
-    // Generate unique horizontal Y-lanes
-    const yPadding = wzHeight * 0.05;
-    const yUsable = wzHeight - yPadding * 2;
-    const yLanes = [];
+    // Generate unique horizontal Y-rows (evenly spaced across wire zone)
+    const yPad = wzHeight * 0.03;
+    const yUsable = wzHeight - yPad * 2;
+    const allY = [];
     for (let i = 0; i < numY; i++) {
-      yLanes.push(wz.top + yPadding + (i + 0.5) * (yUsable / numY));
+      allY.push(wz.top + yPad + (i + 0.5) * (yUsable / numY));
     }
-    const shuffledY = this._shuffle(yLanes);
+    const shuffledY = this._shuffle(allY);
 
     for (let i = 0; i < this.CABLE_COUNT; i++) {
       const leftY = this.layout.cableStartYs[i];
       const socketSlot = this.targetSlots[i];
       const rightY = this.layout.socketYs[socketSlot];
 
-      // Each cable gets 2 exclusive X-channels and 2 exclusive Y-lanes
-      const x1 = shuffledX[i * 2];
-      const x2 = shuffledX[i * 2 + 1];
+      // 3 exclusive X-columns and 2 exclusive Y-rows for this cable
+      const xs = [shuffledX[i * 3], shuffledX[i * 3 + 1], shuffledX[i * 3 + 2]].sort((a, b) => a - b);
       const y1 = shuffledY[i * 2];
       const y2 = shuffledY[i * 2 + 1];
 
-      // Sort X positions left-to-right for clean routing
-      const xA = Math.min(x1, x2);
-      const xB = Math.max(x1, x2);
-
-      // Sort Y-lanes so y1 is first encountered (closer to leftY)
-      const yA = Math.abs(y1 - leftY) < Math.abs(y2 - leftY) ? y1 : y2;
-      const yB = yA === y1 ? y2 : y1;
-
-      // Route: 8 waypoints creating a double-Z shape
-      // start → right to xA → down/up to yA → right to xB → down/up to yB → left/right back...
-      // Actually build: start → xA,leftY → xA,yA → xB,yA → xB,yB → mirror of xA,yB → mirror,rightY → end
-      const xC = wz.left + wz.right - xA; // mirror xA across centre
-      // Clamp xC within wire zone
-      const fxC = Math.max(wz.left + 10, Math.min(wz.right - 10, xC));
-
+      // Route: 10 waypoints
+      // start → xs[0],leftY → xs[0],y1 → xs[1],y1 → xs[1],y2 → xs[2],y2 → xs[2],rightY → end
       const route = [
         { x: this.layout.leftX, y: leftY },
-        { x: xA, y: leftY },
-        { x: xA, y: yA },
-        { x: xB, y: yA },
-        { x: xB, y: yB },
-        { x: fxC, y: yB },
-        { x: fxC, y: rightY },
+        { x: xs[0], y: leftY },
+        { x: xs[0], y: y1 },
+        { x: xs[1], y: y1 },
+        { x: xs[1], y: y2 },
+        { x: xs[2], y: y2 },
+        { x: xs[2], y: rightY },
         { x: this.layout.rightX, y: rightY }
       ];
 
@@ -336,6 +334,25 @@ const WiringTask = {
 
   _update(dt) {
     this.swayTime += dt;
+
+    // Completion pending — keep animating so final wire colour reveals, then show overlay
+    if (this.completionPending) {
+      this.completionDelay -= dt;
+      // Still animate lock progress on all cables
+      for (let i = 0; i < this.CABLE_COUNT; i++) {
+        if (this.cables[i].locked && this.cables[i].lockProgress < 1) {
+          this.cables[i].lockProgress = Math.min(1, this.cables[i].lockProgress + dt * 2.5);
+        }
+      }
+      this._updateSparks(dt);
+      if (this.completionDelay <= 0) {
+        this.completionPending = false;
+        this.running = false;
+        if (this.animFrame) cancelAnimationFrame(this.animFrame);
+        TaskShell.showCompletion('reconnect-wiring');
+      }
+      return;
+    }
 
     if (this.stunTimer > 0) {
       this.stunTimer -= dt;
@@ -877,11 +894,10 @@ const WiringTask = {
   },
 
   _onComplete() {
-    this.running = false;
-    if (this.animFrame) cancelAnimationFrame(this.animFrame);
-    setTimeout(() => {
-      TaskShell.showCompletion('reconnect-wiring');
-    }, 800);
+    // Don't stop immediately — let the final wire's colour animation play out
+    // lockProgress takes ~0.4s (dt*2.5), plus a small beat for the player to see it
+    this.completionPending = true;
+    this.completionDelay = 1.2; // seconds: 0.4s animation + 0.8s visible beat
   },
 
   /* =========================================
