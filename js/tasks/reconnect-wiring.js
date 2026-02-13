@@ -15,7 +15,7 @@ const WiringTask = {
   dpr: 1,
 
   // Timer
-  timeRemaining: 60,
+  timeRemaining: 30,
   timerWarning: false,
   timerCritical: false,
 
@@ -146,7 +146,7 @@ const WiringTask = {
     // Reset state
     this.connectedCount = 0;
     this.selectedCable = -1;
-    this.timeRemaining = 60;
+    this.timeRemaining = 30;
     this.timerWarning = false;
     this.timerCritical = false;
     this.stunTimer = 0;
@@ -217,32 +217,38 @@ const WiringTask = {
 
   /**
    * Generate tangled bezier curves for each cable
+   * Uses 3 control points per cable for extra twistiness
    */
   _generateTangle() {
     this.cables = [];
     const wz = this.layout.wireZone;
     const wzWidth = wz.right - wz.left;
+    const h = this.canvas.height / this.dpr;
 
     // Each cable goes from its left Y to the socket that has its target symbol
-    // Find which socket slot each cable connects to
     for (let i = 0; i < this.CABLE_COUNT; i++) {
-      const targetSymbol = this.legendMapping[i]; // cable i needs symbol targetSymbol
-      // Find which socket position has this symbol
+      const targetSymbol = this.legendMapping[i];
       const socketSlot = this.socketMapping.indexOf(targetSymbol);
 
       const leftY = this.layout.cableStartYs[i];
       const rightY = this.layout.socketYs[socketSlot];
 
-      // Generate control points with random offsets for tangling
-      const cp1x = wz.left + wzWidth * (0.25 + Math.random() * 0.15);
-      const cp2x = wz.left + wzWidth * (0.60 + Math.random() * 0.15);
+      // 3 control points for much more tangling
+      const cp1x = wz.left + wzWidth * (0.15 + Math.random() * 0.12);
+      const cp2x = wz.left + wzWidth * (0.42 + Math.random() * 0.16);
+      const cp3x = wz.left + wzWidth * (0.70 + Math.random() * 0.15);
 
-      // Heavy Y randomisation for tangling — cross other wires
-      const h = this.canvas.height / this.dpr;
-      const yRange = h * 0.6;
+      // Aggressive Y randomisation — wires zig-zag across the full height
+      const yRange = h * 0.85;
       const midY = h * 0.5;
       const cp1y = midY + (Math.random() - 0.5) * yRange;
       const cp2y = midY + (Math.random() - 0.5) * yRange;
+      const cp3y = midY + (Math.random() - 0.5) * yRange;
+
+      // Force cp2 to the opposite side of midY from cp1 to create S-curves
+      if ((cp1y - midY) * (cp2y - midY) > 0) {
+        cp2y = midY - (cp2y - midY);
+      }
 
       this.cables.push({
         leftY,
@@ -250,34 +256,36 @@ const WiringTask = {
         targetSocket: socketSlot,
         cp1: { x: cp1x, y: cp1y },
         cp2: { x: cp2x, y: cp2y },
+        cp3: { x: cp3x, y: cp3y },
         connected: false,
         locked: false,
         errorCount: 0,
-        lockProgress: 0 // 0-1 for straightening animation
+        lockProgress: 0
       });
     }
 
-    // Enforce minimum crossings — if wires don't cross enough, add more
+    // Enforce minimum crossings
     this._enforceCrossings();
   },
 
   /**
-   * Make sure wires are visually tangled — at least 6 crossings
+   * Make sure wires are visually tangled — at least 10 crossings
    */
   _enforceCrossings() {
     let attempts = 0;
-    while (attempts < 20) {
+    while (attempts < 40) {
       const crossings = this._countCrossings();
-      if (crossings >= 6) break;
+      if (crossings >= 10) break;
 
-      // Swap two random control points to increase tangling
+      // Swap control points between random cables to increase tangling
       const a = Math.floor(Math.random() * this.CABLE_COUNT);
       const b = Math.floor(Math.random() * this.CABLE_COUNT);
       if (a !== b) {
-        // Swap CP1 y values
-        const tmpY = this.cables[a].cp1.y;
-        this.cables[a].cp1.y = this.cables[b].cp1.y;
-        this.cables[b].cp1.y = tmpY;
+        // Alternate between swapping cp1, cp2, cp3
+        const cpKey = ['cp1', 'cp2', 'cp3'][attempts % 3];
+        const tmpY = this.cables[a][cpKey].y;
+        this.cables[a][cpKey].y = this.cables[b][cpKey].y;
+        this.cables[b][cpKey].y = tmpY;
       }
       attempts++;
     }
@@ -331,18 +339,32 @@ const WiringTask = {
   },
 
   /**
-   * Sample a point on cable's bezier curve at parameter t
+   * Sample a point on cable's path at parameter t (0-1)
+   * Path is two cubic beziers joined at cp2 (midpoint)
    */
   _sampleBezier(cableIdx, t) {
     const cable = this.cables[cableIdx];
     const lx = this.layout.leftX;
     const rx = this.layout.rightX;
 
-    // Cubic bezier
-    const mt = 1 - t;
-    const x = mt*mt*mt * lx + 3*mt*mt*t * cable.cp1.x + 3*mt*t*t * cable.cp2.x + t*t*t * rx;
-    const y = mt*mt*mt * cable.leftY + 3*mt*mt*t * cable.cp1.y + 3*mt*t*t * cable.cp2.y + t*t*t * cable.rightY;
-    return { x, y };
+    // Split into two halves at cp2 as the join point
+    if (t <= 0.5) {
+      // First half: start → cp1 → cp2(as cp) → midpoint(cp2)
+      const lt = t * 2; // remap 0-0.5 → 0-1
+      const mt = 1 - lt;
+      return {
+        x: mt*mt*mt * lx + 3*mt*mt*lt * cable.cp1.x + 3*mt*lt*lt * cable.cp2.x + lt*lt*lt * cable.cp2.x,
+        y: mt*mt*mt * cable.leftY + 3*mt*mt*lt * cable.cp1.y + 3*mt*lt*lt * ((cable.cp1.y + cable.cp2.y) * 0.5) + lt*lt*lt * cable.cp2.y
+      };
+    } else {
+      // Second half: midpoint(cp2) → cp3(as cp) → end
+      const lt = (t - 0.5) * 2; // remap 0.5-1 → 0-1
+      const mt = 1 - lt;
+      return {
+        x: mt*mt*mt * cable.cp2.x + 3*mt*mt*lt * cable.cp3.x + 3*mt*lt*lt * cable.cp3.x + lt*lt*lt * rx,
+        y: mt*mt*mt * cable.cp2.y + 3*mt*mt*lt * ((cable.cp2.y + cable.cp3.y) * 0.5) + 3*mt*lt*lt * cable.cp3.y + lt*lt*lt * cable.rightY
+      };
+    }
   },
 
   /**
@@ -448,8 +470,8 @@ const WiringTask = {
     }
 
     // Timer state
-    this.timerWarning = this.timeRemaining <= 15 && this.timeRemaining > 5;
-    this.timerCritical = this.timeRemaining <= 5;
+    this.timerWarning = this.timeRemaining <= 10 && this.timeRemaining > 4;
+    this.timerCritical = this.timeRemaining <= 4;
     this._updateTimerDisplay();
 
     // Live wire rotation
@@ -594,12 +616,34 @@ const WiringTask = {
   },
 
   /**
+   * Helper: build the canvas path for a cable using its 3 control points
+   * Two joined cubic beziers through cp1 → cp2 → cp3
+   */
+  _traceCablePath(ctx, lx, ly, cp1x, cp1y, cp2x, cp2y, cp3x, cp3y, rx, ry) {
+    ctx.beginPath();
+    ctx.moveTo(lx, ly);
+    // First half: start → cp1 → midpoint(cp1↔cp2) → cp2
+    const mid1x = (cp1x + cp2x) * 0.5;
+    const mid1y = (cp1y + cp2y) * 0.5;
+    ctx.bezierCurveTo(cp1x, cp1y, mid1x, mid1y, cp2x, cp2y);
+    // Second half: cp2 → midpoint(cp2↔cp3) → cp3 → end
+    const mid2x = (cp2x + cp3x) * 0.5;
+    const mid2y = (cp2y + cp3y) * 0.5;
+    ctx.bezierCurveTo(mid2x, mid2y, cp3x, cp3y, rx, ry);
+  },
+
+  /**
    * Draw all wires
+   * Unlocked wires are grey; locked wires reveal their colour
    */
   _drawWires(w, h) {
     const ctx = this.ctx;
     const lx = this.layout.leftX;
     const rx = this.layout.rightX;
+
+    // Grey colour for unlocked wires
+    const greyHex = '#5A6068';
+    const greyRgb = '90, 96, 104';
 
     // Determine draw order — selected wire on top, live wire second
     const order = [];
@@ -618,62 +662,65 @@ const WiringTask = {
       const isLive = i === this.liveWireIdx && !cable.locked;
       const isDimmed = this.selectedCable >= 0 && !isSelected && !cable.locked;
 
+      // Decide wire colour — grey unless locked (then real colour)
+      const wireColor = cable.locked ? color.hex : greyHex;
+      const wireRgb = cable.locked ? this._hexToRgb(color.hex) : greyRgb;
+
       // Sway offset
       const swayAmp = cable.locked ? 0 : 2;
       const swayOffset = Math.sin(this.swayTime * 1.2 + i * 1.7) * swayAmp;
+      const swayOffset2 = Math.sin(this.swayTime * 0.9 + i * 2.3) * swayAmp * 0.6;
 
       // Interpolate control points for lock-in animation (straighten)
-      let cp1x, cp1y, cp2x, cp2y;
+      let cp1x, cp1y, cp2x, cp2y, cp3x, cp3y;
       if (cable.locked && cable.lockProgress > 0) {
         const p = cable.lockProgress;
         const easeP = 1 - Math.pow(1 - p, 3); // ease-out cubic
-        const straightCp1x = lx + (rx - lx) * 0.33;
-        const straightCp1y = cable.leftY + (cable.rightY - cable.leftY) * 0.33;
-        const straightCp2x = lx + (rx - lx) * 0.66;
-        const straightCp2y = cable.leftY + (cable.rightY - cable.leftY) * 0.66;
-        cp1x = cable.cp1.x + (straightCp1x - cable.cp1.x) * easeP;
-        cp1y = cable.cp1.y + (straightCp1y - cable.cp1.y) * easeP;
-        cp2x = cable.cp2.x + (straightCp2x - cable.cp2.x) * easeP;
-        cp2y = cable.cp2.y + (straightCp2y - cable.cp2.y) * easeP;
+        const s1x = lx + (rx - lx) * 0.25;
+        const s1y = cable.leftY + (cable.rightY - cable.leftY) * 0.25;
+        const s2x = lx + (rx - lx) * 0.50;
+        const s2y = cable.leftY + (cable.rightY - cable.leftY) * 0.50;
+        const s3x = lx + (rx - lx) * 0.75;
+        const s3y = cable.leftY + (cable.rightY - cable.leftY) * 0.75;
+        cp1x = cable.cp1.x + (s1x - cable.cp1.x) * easeP;
+        cp1y = cable.cp1.y + (s1y - cable.cp1.y) * easeP;
+        cp2x = cable.cp2.x + (s2x - cable.cp2.x) * easeP;
+        cp2y = cable.cp2.y + (s2y - cable.cp2.y) * easeP;
+        cp3x = cable.cp3.x + (s3x - cable.cp3.x) * easeP;
+        cp3y = cable.cp3.y + (s3y - cable.cp3.y) * easeP;
       } else {
         cp1x = cable.cp1.x;
         cp1y = cable.cp1.y + swayOffset;
         cp2x = cable.cp2.x;
         cp2y = cable.cp2.y - swayOffset * 0.7;
+        cp3x = cable.cp3.x;
+        cp3y = cable.cp3.y + swayOffset2;
       }
 
       // Wire glow (for selected or live)
       if (isSelected || isLive) {
-        ctx.beginPath();
-        ctx.moveTo(lx, cable.leftY);
-        ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, rx, cable.rightY);
+        this._traceCablePath(ctx, lx, cable.leftY, cp1x, cp1y, cp2x, cp2y, cp3x, cp3y, rx, cable.rightY);
         ctx.strokeStyle = isLive ?
           `rgba(255, 68, 68, ${0.15 + Math.sin(this.swayTime * 8) * 0.1})` :
-          `rgba(${this._hexToRgb(color.hex)}, 0.3)`;
+          `rgba(${wireRgb}, 0.35)`;
         ctx.lineWidth = 12;
         ctx.lineCap = 'round';
         ctx.stroke();
       }
 
       // Wire body
-      ctx.beginPath();
-      ctx.moveTo(lx, cable.leftY);
-      ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, rx, cable.rightY);
+      this._traceCablePath(ctx, lx, cable.leftY, cp1x, cp1y, cp2x, cp2y, cp3x, cp3y, rx, cable.rightY);
 
-      let alpha = isDimmed ? 0.2 : (cable.locked ? 0.9 : 0.75);
-      ctx.strokeStyle = cable.locked ?
-        color.hex :
-        `rgba(${this._hexToRgb(color.hex)}, ${alpha})`;
-      ctx.lineWidth = cable.locked ? 5 : 4;
+      let alpha = isDimmed ? 0.15 : (cable.locked ? 0.9 : 0.55);
+      ctx.strokeStyle = `rgba(${wireRgb}, ${alpha})`;
+      ctx.lineWidth = cable.locked ? 5 : 3.5;
       ctx.lineCap = 'round';
       ctx.stroke();
 
       // Wire highlight (subtle lighter stripe)
       if (!isDimmed) {
-        ctx.beginPath();
-        ctx.moveTo(lx, cable.leftY - 1);
-        ctx.bezierCurveTo(cp1x, cp1y - 1, cp2x, cp2y - 1, rx, cable.rightY - 1);
-        ctx.strokeStyle = `rgba(255, 255, 255, ${cable.locked ? 0.12 : 0.06})`;
+        this._traceCablePath(ctx, lx, cable.leftY - 1, cp1x, cp1y - 1, cp2x, cp2y - 1, cp3x, cp3y - 1, rx, cable.rightY - 1);
+        ctx.strokeStyle = `rgba(255, 255, 255, ${cable.locked ? 0.12 : 0.04})`;
         ctx.lineWidth = 1.5;
         ctx.stroke();
       }
@@ -681,7 +728,7 @@ const WiringTask = {
       // Locked cable — travelling light pulse
       if (cable.locked) {
         const pulseT = (this.swayTime * 0.8 + i * 0.3) % 1;
-        const pt = this._sampleBezierFromCPs(lx, cable.leftY, cp1x, cp1y, cp2x, cp2y, rx, cable.rightY, pulseT);
+        const pt = this._sampleBezier(i, pulseT);
         ctx.beginPath();
         ctx.arc(pt.x, pt.y, 4, 0, Math.PI * 2);
         ctx.fillStyle = `rgba(${this._hexToRgb(color.hex)}, 0.9)`;
@@ -695,10 +742,15 @@ const WiringTask = {
 
   /**
    * Draw cable endpoints on the left
+   * Grey by default — colour shows only when selected or locked
    */
   _drawCableEndpoints(w, h) {
     const ctx = this.ctx;
     const r = this.layout.cableRadius;
+
+    // Grey defaults for unlocked/unselected
+    const greyLight = '#5A6068';
+    const greyDark = '#3A4048';
 
     for (let i = 0; i < this.CABLE_COUNT; i++) {
       const cable = this.cables[i];
@@ -707,6 +759,11 @@ const WiringTask = {
       const y = this.layout.cableStartYs[i];
       const isSelected = i === this.selectedCable;
       const isLive = i === this.liveWireIdx && !cable.locked;
+
+      // Determine displayed colour: real colour if selected or locked, grey otherwise
+      const showColor = cable.locked || isSelected;
+      const dispHex = showColor ? color.hex : greyLight;
+      const dispDark = showColor ? color.dark : greyDark;
 
       // Metallic bezel
       ctx.beginPath();
@@ -722,15 +779,15 @@ const WiringTask = {
       ctx.beginPath();
       ctx.arc(x, y, r, 0, Math.PI * 2);
       const grad = ctx.createRadialGradient(x - r * 0.2, y - r * 0.3, 0, x, y, r);
-      grad.addColorStop(0, cable.locked ? color.hex : (isSelected ? color.hex : color.dark));
-      grad.addColorStop(1, color.dark);
+      grad.addColorStop(0, dispHex);
+      grad.addColorStop(1, dispDark);
       ctx.fillStyle = grad;
       ctx.fill();
 
       // Highlight
       ctx.beginPath();
       ctx.arc(x - r * 0.2, y - r * 0.3, r * 0.35, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
       ctx.fill();
 
       // Locked check
