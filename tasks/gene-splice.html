@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gene Splice Relay — Botanics Task</title>
+
+  <!-- Design System CSS -->
+  <link rel="stylesheet" href="../css/base.css">
+  <link rel="stylesheet" href="../css/typography.css">
+  <link rel="stylesheet" href="../css/components.css">
+  <link rel="stylesheet" href="../css/themes.css">
+
+  <!-- Task-specific styles -->
+  <style>
+    /* --- Splice Layout --- */
+    .splice-layout {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 20px;
+      width: 100%;
+      max-width: 520px;
+      padding: 8px 0;
+    }
+
+    /* --- Top Bar --- */
+    .splice-topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      width: 100%;
+    }
+
+    .splice-topbar__label {
+      font-family: 'Bungee', sans-serif;
+      font-size: 18px;
+      letter-spacing: 0.5px;
+      color: var(--text-heading);
+      text-transform: uppercase;
+    }
+
+    /* --- Attempt Pips --- */
+    .splice-attempts {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .attempt-pip {
+      width: 12px;
+      height: 28px;
+      border-radius: 4px;
+      background: #2A3337;
+      transition: background 0.3s ease, box-shadow 0.3s ease;
+    }
+
+    .attempt-pip.used {
+      background: #FF4444;
+      box-shadow: 0 0 10px rgba(255, 68, 68, 0.62);
+    }
+
+    /* --- Strand Area --- */
+    .strand-area {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      width: 100%;
+      align-items: center;
+      min-height: 70px;
+    }
+
+    /* --- Strand Row --- */
+    .strand-row {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      width: 100%;
+      align-items: center;
+    }
+
+    .strand-row__label {
+      font-family: 'PP Supply Mono', sans-serif;
+      font-weight: 300;
+      font-size: 11px;
+      letter-spacing: 0.7px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+    }
+
+    .strand-row__segments {
+      display: flex;
+      gap: 10px;
+      justify-content: center;
+    }
+
+    /* --- Segment (pill shape) --- */
+    .segment {
+      width: 80px;
+      height: 48px;
+      border-radius: 24px;
+      border: 2px solid #293136;
+      background: #1A2228;
+      cursor: pointer;
+      transition: background 0.2s ease,
+                  border-color 0.3s ease,
+                  transform 0.15s ease,
+                  box-shadow 0.3s ease,
+                  opacity 0.3s ease;
+      position: relative;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .segment.empty {
+      border-style: dashed;
+      border-color: #3A454D;
+    }
+
+    .segment.empty:hover {
+      border-color: var(--area-primary);
+      background: rgba(68, 255, 162, 0.05);
+    }
+
+    .segment.selected {
+      border-color: var(--area-primary) !important;
+      border-style: solid !important;
+      box-shadow: 0 0 12px rgba(68, 255, 162, 0.4);
+      transform: scale(1.05);
+    }
+
+    /* --- Gene Colour Fills --- */
+    .segment.colour-adenine {
+      background: #44FFA2;
+      border-color: #44FFA2;
+    }
+    .segment.colour-thymine {
+      background: #ADE7CA;
+      border-color: #ADE7CA;
+    }
+    .segment.colour-guanine {
+      background: #92AD3F;
+      border-color: #92AD3F;
+    }
+    .segment.colour-cytosine {
+      background: #50C878;
+      border-color: #50C878;
+    }
+
+    /* --- Locked (recalled strands — dimmed) --- */
+    .segment.locked {
+      opacity: 0.35;
+      cursor: default;
+      pointer-events: none;
+      filter: saturate(0.3) brightness(0.6);
+    }
+
+    /* --- Reveal Animation --- */
+    .segment.revealing {
+      animation: segmentPulse 0.5s ease-in-out;
+    }
+
+    @keyframes segmentPulse {
+      0% { transform: scale(0.9); opacity: 0.5; }
+      50% { transform: scale(1.05); }
+      100% { transform: scale(1); opacity: 1; }
+    }
+
+    /* --- Pop on Fill --- */
+    .segment.pop {
+      animation: segmentPop 0.15s ease;
+    }
+
+    @keyframes segmentPop {
+      0% { transform: scale(0.85); }
+      60% { transform: scale(1.08); }
+      100% { transform: scale(1); }
+    }
+
+    /* --- Error Shake --- */
+    .segment.error {
+      animation: segmentShake 0.4s ease;
+      border-color: #FF4444 !important;
+      border-style: solid !important;
+      box-shadow: 0 0 15px rgba(255, 68, 68, 0.5);
+    }
+
+    @keyframes segmentShake {
+      0%, 100% { transform: translateX(0); }
+      20% { transform: translateX(-6px); }
+      40% { transform: translateX(6px); }
+      60% { transform: translateX(-4px); }
+      80% { transform: translateX(4px); }
+    }
+
+    /* --- Correct Glow --- */
+    .segment.correct {
+      box-shadow: 0 0 20px rgba(68, 255, 162, 0.5);
+      animation: correctGlow 0.6s ease;
+    }
+
+    @keyframes correctGlow {
+      0% { box-shadow: 0 0 0px rgba(68, 255, 162, 0); }
+      50% { box-shadow: 0 0 30px rgba(68, 255, 162, 0.7); }
+      100% { box-shadow: 0 0 20px rgba(68, 255, 162, 0.5); }
+    }
+
+    /* --- Helix Merge (Phase 3 completion) --- */
+    .strand-row.merging {
+      animation: helixMerge 0.8s ease-in-out forwards;
+    }
+
+    @keyframes helixMerge {
+      0% { transform: translateY(0) scale(1); opacity: 1; }
+      40% { transform: translateY(0) scale(1.05); opacity: 1; }
+      100% { transform: translateY(0) scale(0.9); opacity: 0; }
+    }
+
+    /* --- Colour Palette --- */
+    .colour-palette {
+      display: flex;
+      gap: 14px;
+      justify-content: center;
+      padding: 12px 0;
+      transition: opacity 0.3s ease;
+    }
+
+    .colour-palette.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .palette-btn {
+      width: 56px;
+      height: 56px;
+      border-radius: 50%;
+      border: 3px solid rgba(255, 255, 255, 0.15);
+      cursor: pointer;
+      transition: transform 0.15s ease,
+                  box-shadow 0.2s ease,
+                  border-color 0.2s ease;
+      outline: none;
+      padding: 0;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .palette-btn:hover {
+      transform: scale(1.12);
+      box-shadow: 0 0 16px rgba(68, 255, 162, 0.4);
+      border-color: rgba(255, 255, 255, 0.4);
+    }
+
+    .palette-btn:active {
+      transform: scale(0.95);
+    }
+
+    /* --- Contamination Cooldown Overlay --- */
+    .contamination-overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(14, 21, 25, 0.95);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.4s ease;
+      z-index: 6;
+      border-radius: var(--frame-radius);
+    }
+
+    .contamination-overlay.active {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .contamination-overlay__title {
+      font-family: 'Bungee', sans-serif;
+      font-size: 28px;
+      letter-spacing: 0.5px;
+      color: var(--error-red);
+      text-transform: uppercase;
+      text-shadow: 0 0 25px rgba(255, 68, 68, 0.5);
+    }
+
+    .contamination-overlay__timer {
+      font-family: 'Bungee', sans-serif;
+      font-size: 52px;
+      letter-spacing: 1px;
+      color: var(--error-red);
+      text-shadow: 0 0 30px rgba(255, 68, 68, 0.4);
+    }
+
+    .contamination-overlay__sub {
+      font-family: 'PP Supply Mono', sans-serif;
+      font-weight: 300;
+      font-size: 14px;
+      letter-spacing: 0.5px;
+      color: var(--text-muted);
+    }
+
+    /* --- Responsive --- */
+    @media (max-width: 480px) {
+      .segment {
+        width: 60px;
+        height: 38px;
+        border-radius: 19px;
+      }
+      .palette-btn {
+        width: 44px;
+        height: 44px;
+      }
+      .splice-layout {
+        gap: 14px;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <!-- ===== TASK OVERLAY ===== -->
+  <div class="task-overlay theme-botanics">
+
+    <!-- Dark blur background -->
+    <div class="task-overlay__bg"></div>
+
+    <!-- Task Header -->
+    <div class="task-header">
+      <span class="task-header__area-label">Botanics</span>
+      <h1 class="task-header__title">Gene Splice Relay</h1>
+    </div>
+
+    <!-- Close Button -->
+    <button class="task-close" aria-label="Close task">
+      <svg viewBox="0 0 34 33" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <line x1="2" y1="2" x2="32" y2="31" />
+        <line x1="32" y1="2" x2="2" y2="31" />
+      </svg>
+    </button>
+
+    <!-- Task Frame -->
+    <div class="task-frame">
+
+      <!-- ===== PHASE 1: Chloroplast Strand ===== -->
+      <div id="phase-1" class="phase-container active">
+        <div class="splice-layout">
+          <div class="splice-topbar">
+            <span class="splice-topbar__label" id="phase-label-1">Chloroplast Strand</span>
+            <div class="splice-attempts" id="attempts-1">
+              <div class="attempt-pip"></div>
+              <div class="attempt-pip"></div>
+              <div class="attempt-pip"></div>
+            </div>
+          </div>
+
+          <div class="progress-dots">
+            <div class="progress-dot active" id="dot-1-0"></div>
+            <div class="progress-dot" id="dot-1-1"></div>
+            <div class="progress-dot" id="dot-1-2"></div>
+          </div>
+
+          <p class="instruction" id="instruction-1">Memorise the sequence...</p>
+
+          <div class="strand-area" id="strand-area-1"></div>
+
+          <div class="colour-palette hidden" id="palette-1">
+            <button class="palette-btn" data-colour="adenine" style="background: #44FFA2;" aria-label="Adenine"></button>
+            <button class="palette-btn" data-colour="thymine" style="background: #ADE7CA;" aria-label="Thymine"></button>
+            <button class="palette-btn" data-colour="guanine" style="background: #92AD3F;" aria-label="Guanine"></button>
+            <button class="palette-btn" data-colour="cytosine" style="background: #50C878;" aria-label="Cytosine"></button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== PHASE 2: Root System Strand ===== -->
+      <div id="phase-2" class="phase-container hidden">
+        <div class="splice-layout">
+          <div class="splice-topbar">
+            <span class="splice-topbar__label" id="phase-label-2">Root System Strand</span>
+            <div class="splice-attempts" id="attempts-2">
+              <div class="attempt-pip"></div>
+              <div class="attempt-pip"></div>
+              <div class="attempt-pip"></div>
+            </div>
+          </div>
+
+          <div class="progress-dots">
+            <div class="progress-dot filled" id="dot-2-0"></div>
+            <div class="progress-dot active" id="dot-2-1"></div>
+            <div class="progress-dot" id="dot-2-2"></div>
+          </div>
+
+          <p class="instruction" id="instruction-2">Memorise the sequence...</p>
+
+          <div class="strand-area" id="strand-area-2"></div>
+
+          <div class="colour-palette hidden" id="palette-2">
+            <button class="palette-btn" data-colour="adenine" style="background: #44FFA2;" aria-label="Adenine"></button>
+            <button class="palette-btn" data-colour="thymine" style="background: #ADE7CA;" aria-label="Thymine"></button>
+            <button class="palette-btn" data-colour="guanine" style="background: #92AD3F;" aria-label="Guanine"></button>
+            <button class="palette-btn" data-colour="cytosine" style="background: #50C878;" aria-label="Cytosine"></button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== PHASE 3: Pollen Core Strand ===== -->
+      <div id="phase-3" class="phase-container hidden">
+        <div class="splice-layout">
+          <div class="splice-topbar">
+            <span class="splice-topbar__label" id="phase-label-3">Pollen Core Strand</span>
+            <div class="splice-attempts" id="attempts-3">
+              <div class="attempt-pip"></div>
+              <div class="attempt-pip"></div>
+              <div class="attempt-pip"></div>
+            </div>
+          </div>
+
+          <div class="progress-dots">
+            <div class="progress-dot filled" id="dot-3-0"></div>
+            <div class="progress-dot filled" id="dot-3-1"></div>
+            <div class="progress-dot active" id="dot-3-2"></div>
+          </div>
+
+          <p class="instruction" id="instruction-3">Memorise the sequence...</p>
+
+          <div class="strand-area" id="strand-area-3"></div>
+
+          <div class="colour-palette hidden" id="palette-3">
+            <button class="palette-btn" data-colour="adenine" style="background: #44FFA2;" aria-label="Adenine"></button>
+            <button class="palette-btn" data-colour="thymine" style="background: #ADE7CA;" aria-label="Thymine"></button>
+            <button class="palette-btn" data-colour="guanine" style="background: #92AD3F;" aria-label="Guanine"></button>
+            <button class="palette-btn" data-colour="cytosine" style="background: #50C878;" aria-label="Cytosine"></button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== CONTAMINATION COOLDOWN OVERLAY ===== -->
+      <div class="contamination-overlay" id="contamination-overlay">
+        <p class="contamination-overlay__title">Sample Contaminated</p>
+        <p class="contamination-overlay__timer" id="contamination-timer">10</p>
+        <p class="contamination-overlay__sub">Flushing bio-reactor...</p>
+      </div>
+
+      <!-- ===== TASK COMPLETION OVERLAY ===== -->
+      <div class="task-completion">
+        <div class="task-completion__glow"></div>
+        <svg class="task-completion__checkmark" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="24" cy="24" r="22" stroke="#44FFA2" stroke-width="2" opacity="0.5"/>
+          <path d="M14 24L21 31L34 18" stroke="#44FFA2" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <p class="task-completion__text">Task Completed!</p>
+        <button class="btn btn--confirm task-completion__continue">Continue</button>
+      </div>
+
+    </div><!-- /task-frame -->
+
+  </div><!-- /task-overlay -->
+
+  <!-- Scripts -->
+  <script src="../js/audio.js"></script>
+  <script src="../js/task-shell.js"></script>
+  <script src="../js/tasks/gene-splice.js"></script>
+
+</body>
+</html>
