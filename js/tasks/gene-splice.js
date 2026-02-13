@@ -130,11 +130,6 @@ const GeneSpliceTask = {
     const row = document.createElement('div');
     row.className = 'strand-row';
 
-    const label = document.createElement('span');
-    label.className = 'strand-row__label';
-    label.textContent = this.PHASE_LABELS[phaseIdx];
-    row.appendChild(label);
-
     const segContainer = document.createElement('div');
     segContainer.className = 'strand-row__segments';
 
